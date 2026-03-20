@@ -167,8 +167,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int btnWidth = (cx - (5 * gap)) / 4;
         int btnHeight = (btnAreaHeight - (6 * gap)) / 5;
 
-        for (int i = 0; i < 18; i++) {
-            int row = i / 5;
+        for (int i = 0; i < 16; i++) {
+            int row = i / 4;
             int col = i % 4;
 
             int x = gap + col * (btnWidth + gap);
@@ -176,6 +176,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
             MoveWindow(hBtns[i], x, y, btnWidth, btnHeight, TRUE);
         }
+        int x, y;
+        x = gap;
+        y = startY + 4 * (btnHeight + gap);
+
+        MoveWindow(hBtns[16], x, y, btnWidth, btnHeight, TRUE);
+
+        x = gap + 1 * (btnWidth + gap);
+        y = startY + 4 * (btnHeight + gap);
+
+        btnWidth = (cx - 2*gap) - btnWidth;
+
+        MoveWindow(hBtns[17], x, y, btnWidth, btnHeight, TRUE);
 
         int fontSize = btnHeight * 4 / 10;
         if (fontSize < 16) fontSize = 16;

@@ -17,7 +17,9 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
-HANDLE hDisplay = NULL;
+HWND hDisplay = NULL;
+HWND hBtns[18];
+HFONT g_hFont = NULL;
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -100,7 +102,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    hInst = hInstance; // Store instance handle in our global variable
 
    HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, 0, CW_USEDEFAULT, 0, nullptr, nullptr, hInstance, nullptr);
+      600, 0, 350, 0, nullptr, nullptr, hInstance, nullptr);
 
    if (!hWnd)
    {
@@ -132,8 +134,65 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             WS_CHILD | WS_VISIBLE | WS_BORDER | ES_RIGHT | ES_READONLY | ES_AUTOHSCROLL,
             0, 0, 0, 0, hWnd, (HMENU)IDC_DISPLAY, GetModuleHandle(NULL), NULL);
 
+        struct ButtonDef { int id; const wchar_t* label; };
+        ButtonDef layout[18] = {
+            { IDC_BTN_7, L"7" }, { IDC_BTN_8, L"8" }, { IDC_BTN_9, L"9" }, { IDC_BTN_DIV, L"/" },
+            { IDC_BTN_4, L"4" }, { IDC_BTN_5, L"5" }, { IDC_BTN_6, L"6" }, { IDC_BTN_MUL, L"*" },
+            { IDC_BTN_1, L"1" }, { IDC_BTN_2, L"2" }, { IDC_BTN_3, L"3" }, { IDC_BTN_SUB, L"-" },
+            {IDC_BTN_C, L"C"}, { IDC_BTN_0, L"0" }, { IDC_BTN_DOT, L"." }, { IDC_BTN_ADD, L"+" },
+            { IDC_BTN_BS, L"BS" }, { IDC_BTN_EQ, L"=" }
+        };
+
+        for (int i = 0; i < 18; i++) {
+            hBtns[i] = CreateWindowExW(0, L"Button", layout[i].label,
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                0, 0, 0, 0, hWnd, (HMENU)(UINT_PTR)layout[i].id, GetModuleHandle(NULL), NULL);
+        }
+
         return 0;
         }
+
+    case WM_SIZE: {
+        int cx = LOWORD(lParam);
+        int cy = HIWORD(lParam);
+
+        int gap = 5;
+
+        int displayHeight = (cy / 6);
+        MoveWindow(hDisplay, gap, gap, cx - (2 * gap), displayHeight - gap, TRUE);
+
+        int startY = displayHeight + gap;
+        int btnAreaHeight = cy - startY;
+
+        int btnWidth = (cx - (5 * gap)) / 4;
+        int btnHeight = (btnAreaHeight - (6 * gap)) / 5;
+
+        for (int i = 0; i < 18; i++) {
+            int row = i / 5;
+            int col = i % 4;
+
+            int x = gap + col * (btnWidth + gap);
+            int y = startY + row * (btnHeight + gap);
+
+            MoveWindow(hBtns[i], x, y, btnWidth, btnHeight, TRUE);
+        }
+
+        int fontSize = btnHeight * 4 / 10;
+        if (fontSize < 16) fontSize = 16;
+
+        g_hFont = CreateFontW(
+            fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI"
+        );
+
+        SendMessage(hDisplay, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        for (int i = 0; i < 18; i++) {
+            SendMessage(hBtns[i], WM_SETFONT, (WPARAM)g_hFont, TRUE);
+        }
+        
+        return 0;
+    }
     case WM_COMMAND:
         {
             int wmId = LOWORD(wParam);
@@ -168,6 +227,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_DESTROY:
+        if (g_hFont != NULL) {
+            DeleteObject(g_hFont);
+        }
         PostQuitMessage(0);
         break;
     default:

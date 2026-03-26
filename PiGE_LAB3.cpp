@@ -1,8 +1,9 @@
-// PiGE_LAB3.cpp : Defines the entry point for the application.
+﻿// PiGE_LAB3.cpp : Defines the entry point for the application.
 //
 
 #include "framework.h"
 #include "PiGE_LAB3.h"
+#include <string>
 
 #define MAX_LOADSTRING 100
 
@@ -11,15 +12,98 @@ HINSTANCE hInst;                                // current instance
 WCHAR szTitle[MAX_LOADSTRING];                  // The title bar text
 WCHAR szWindowClass[MAX_LOADSTRING];            // the main window class name
 
-// Forward declarations of functions included in this code module:
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    CustomDisplayWndProc(HWND, UINT, WPARAM, LPARAM);
 
 HWND hDisplay = NULL;
 HWND hBtns[18];
 HFONT g_hFont = NULL;
+
+HFONT g_hFontHistory = NULL;
+HFONT g_hFontCurrent = NULL;
+
+WCHAR szHistory[256] = L"";
+WCHAR szCurrent[256] = L"0";
+
+std::wstring currentInput = L"0";
+std::wstring historyString = L"";
+double previousValue = 0;
+int currentOp = 0;
+bool newNumber = true;
+
+std::wstring FormatDouble(double d) {
+    wchar_t buf[64];
+    swprintf_s(buf, L"%g", d);
+    return std::wstring(buf);
+}
+
+void HandleButtonCommand(int id) {
+    if (id >= IDC_BTN_0 && id <= IDC_BTN_9) {
+        int d = id - IDC_BTN_0;
+        if (newNumber) {
+            currentInput = std::to_wstring(d);
+            newNumber = false;
+        }
+        else {
+            if (currentInput == L"0") currentInput = std::to_wstring(d);
+            else currentInput += std::to_wstring(d);
+        }
+    }
+    else if (id == IDC_BTN_DOT) {
+        if (newNumber) { currentInput = L"0."; newNumber = false; }
+        else if (currentInput.find(L'.') == std::wstring::npos) currentInput += L".";
+    }
+    else if (id == IDC_BTN_BS) {
+        if (!newNumber && currentInput.length() > 0) {
+            currentInput.pop_back();
+            if (currentInput.empty() || currentInput == L"-") currentInput = L"0";
+        }
+    }
+    else if (id == IDC_BTN_C || id == IDM_CLEAR) {
+        currentInput = L"0";
+        historyString = L"";
+        previousValue = 0;
+        currentOp = 0;
+        newNumber = true;
+    }
+    else if (id >= IDC_BTN_ADD && id <= IDC_BTN_DIV) {
+        if (!newNumber || currentOp == 0) {
+            if (currentOp != 0) {
+                double currentValue = std::stod(currentInput);
+                if (currentOp == IDC_BTN_ADD) previousValue += currentValue;
+                if (currentOp == IDC_BTN_SUB) previousValue -= currentValue;
+                if (currentOp == IDC_BTN_MUL) previousValue *= currentValue;
+                if (currentOp == IDC_BTN_DIV && currentValue != 0) previousValue /= currentValue;
+            }
+            else {
+                previousValue = std::stod(currentInput);
+            }
+        }
+        currentOp = id;
+        newNumber = true;
+        wchar_t opChar = (id == IDC_BTN_ADD) ? L'+' : (id == IDC_BTN_SUB) ? L'-' : (id == IDC_BTN_MUL) ? L'*' : L'/';
+        historyString = FormatDouble(previousValue) + L" " + opChar;
+        currentInput = FormatDouble(previousValue);
+    }
+    else if (id == IDC_BTN_EQ) {
+        if (currentOp != 0) {
+            double currentValue = std::stod(currentInput);
+            if (currentOp == IDC_BTN_ADD) previousValue += currentValue;
+            if (currentOp == IDC_BTN_SUB) previousValue -= currentValue;
+            if (currentOp == IDC_BTN_MUL) previousValue *= currentValue;
+            if (currentOp == IDC_BTN_DIV && currentValue != 0) previousValue /= currentValue;
+            currentInput = FormatDouble(previousValue);
+            historyString = L"";
+            currentOp = 0;
+            newNumber = true;
+        }
+    }
+    wcscpy_s(szCurrent, currentInput.c_str());
+    wcscpy_s(szHistory, historyString.c_str());
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -59,13 +143,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     return (int) msg.wParam;
 }
 
-
-
-//
-//  FUNCTION: MyRegisterClass()
-//
-//  PURPOSE: Registers the window class.
-//
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
     WNDCLASSEXW wcex;
@@ -84,19 +161,22 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcex.lpszClassName  = szWindowClass;
     wcex.hIconSm        = LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_ICON1));
 
-    return RegisterClassExW(&wcex);
+    RegisterClassExW(&wcex);
+
+    WNDCLASSEXW wcexDisp = { 0 };
+    wcexDisp.cbSize = sizeof(WNDCLASSEX);
+    wcexDisp.style = CS_HREDRAW | CS_VREDRAW;
+    wcexDisp.lpfnWndProc = CustomDisplayWndProc;
+    wcexDisp.hInstance = hInstance;
+    wcexDisp.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexDisp.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
+    wcexDisp.lpszClassName = L"CustomDisplay";
+
+    return RegisterClassExW(&wcexDisp);
+
 }
 
-//
-//   FUNCTION: InitInstance(HINSTANCE, int)
-//
-//   PURPOSE: Saves instance handle and creates main window
-//
-//   COMMENTS:
-//
-//        In this function, we save the instance handle in a global variable and
-//        create and display the main program window.
-//
+
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // Store instance handle in our global variable
@@ -115,23 +195,16 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-//
-//  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  PURPOSE: Processes messages for the main window.
-//
-//  WM_COMMAND  - process the application menu
-//  WM_PAINT    - Paint the main window
-//  WM_DESTROY  - post a quit message and return
-//
-//
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
     {
     case WM_CREATE: {
-        hDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"Edit", L"0",
-            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_RIGHT | ES_READONLY | ES_AUTOHSCROLL,
+        HMENU hMenu = GetMenu(hWnd);
+        CheckMenuItem(hMenu, IDM_BASIC, MF_CHECKED);
+
+        hDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"CustomDisplay", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER,
             0, 0, 0, 0, hWnd, (HMENU)IDC_DISPLAY, GetModuleHandle(NULL), NULL);
 
         struct ButtonDef { int id; const wchar_t* label; };
@@ -155,11 +228,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_SIZE: {
         int cx = LOWORD(lParam);
         int cy = HIWORD(lParam);
-
         int gap = 5;
 
-        int displayHeight = (cy / 6);
-        MoveWindow(hDisplay, gap, gap, cx - (2 * gap), displayHeight - gap, TRUE);
+        int displayHeight = (cy / 4);
+
+        HDWP hdwp = BeginDeferWindowPos(19);
+
+        hdwp = DeferWindowPos(hdwp, hDisplay, NULL, gap, gap, cx - (2 * gap), displayHeight - gap, SWP_NOZORDER);
 
         int startY = displayHeight + gap;
         int btnAreaHeight = cy - startY;
@@ -170,49 +245,57 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         for (int i = 0; i < 16; i++) {
             int row = i / 4;
             int col = i % 4;
-
             int x = gap + col * (btnWidth + gap);
             int y = startY + row * (btnHeight + gap);
-
-            MoveWindow(hBtns[i], x, y, btnWidth, btnHeight, TRUE);
+            hdwp = DeferWindowPos(hdwp, hBtns[i], NULL, x, y, btnWidth, btnHeight, SWP_NOZORDER);
         }
-        int x, y;
-        x = gap;
-        y = startY + 4 * (btnHeight + gap);
 
-        MoveWindow(hBtns[16], x, y, btnWidth, btnHeight, TRUE);
+        // BS
+        int x = gap;
+        int y = startY + 4 * (btnHeight + gap);
+        hdwp = DeferWindowPos(hdwp, hBtns[16], NULL, x, y, btnWidth, btnHeight, SWP_NOZORDER);
 
-        x = gap + 1 * (btnWidth + gap);
-        y = startY + 4 * (btnHeight + gap);
 
-        btnWidth = (cx - 2*gap) - btnWidth;
+        // =
+        x = gap + btnWidth + gap;
+        int eqWidth = cx - gap - x;
+        hdwp = DeferWindowPos(hdwp, hBtns[17], NULL, x, y, eqWidth, btnHeight, SWP_NOZORDER); 
 
-        MoveWindow(hBtns[17], x, y, btnWidth, btnHeight, TRUE);
+        EndDeferWindowPos(hdwp);
+
+        if (g_hFont) DeleteObject(g_hFont);
+        if (g_hFontCurrent) DeleteObject(g_hFontCurrent);
+        if (g_hFontHistory) DeleteObject(g_hFontHistory);
 
         int fontSize = btnHeight * 4 / 10;
         if (fontSize < 16) fontSize = 16;
 
-        g_hFont = CreateFontW(
-            fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI"
-        );
+        g_hFont = CreateFontW(fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+        g_hFontCurrent = CreateFontW(displayHeight * 2 / 3, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+        g_hFontHistory = CreateFontW(displayHeight / 4, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
 
-        SendMessage(hDisplay, WM_SETFONT, (WPARAM)g_hFont, TRUE);
         for (int i = 0; i < 18; i++) {
             SendMessage(hBtns[i], WM_SETFONT, (WPARAM)g_hFont, TRUE);
         }
-        
+
+        InvalidateRect(hDisplay, NULL, TRUE); // Repaint
         return 0;
     }
     case WM_COMMAND:
         {
             int wmId = LOWORD(wParam);
-            // Parse the menu selections:
+
+            if (wmId >= IDC_BTN_0 && wmId <= IDC_BTN_DOT) {
+                HandleButtonCommand(wmId);
+                InvalidateRect(hDisplay, NULL, TRUE);
+                SetFocus(hWnd);
+                return 0;
+            }
+
             switch (wmId)
             {
             case IDM_PROGRAMMER:
-                DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
+                MessageBoxW(hWnd, L"Not implemented yet", L"Programmer Mode", MB_OK | MB_ICONINFORMATION);
                 break;
             case IDM_CLEAR:
                 DestroyWindow(hWnd);
@@ -222,6 +305,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
         }
         break;
+
+    case WM_KEYDOWN:
+        if (wParam == VK_BACK) PostMessage(hWnd, WM_COMMAND, IDC_BTN_BS, 0);
+        else if (wParam == VK_RETURN) PostMessage(hWnd, WM_COMMAND, IDC_BTN_EQ, 0);
+        break;
+
+    case WM_CHAR:
+        if (wParam >= '0' && wParam <= '9') PostMessage(hWnd, WM_COMMAND, IDC_BTN_0 + (wParam - '0'), 0);
+        else if (wParam == '+') PostMessage(hWnd, WM_COMMAND, IDC_BTN_ADD, 0);
+        else if (wParam == '-') PostMessage(hWnd, WM_COMMAND, IDC_BTN_SUB, 0);
+        else if (wParam == '*') PostMessage(hWnd, WM_COMMAND, IDC_BTN_MUL, 0);
+        else if (wParam == '/') PostMessage(hWnd, WM_COMMAND, IDC_BTN_DIV, 0);
+        else if (wParam == '.' || wParam == ',') PostMessage(hWnd, WM_COMMAND, IDC_BTN_DOT, 0);
+        else if (wParam == '=') PostMessage(hWnd, WM_COMMAND, IDC_BTN_EQ, 0);
+        break;
+
     case WM_PAINT:
         {
             PAINTSTRUCT ps;
@@ -239,33 +338,56 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
 
     case WM_DESTROY:
-        if (g_hFont != NULL) {
-            DeleteObject(g_hFont);
-        }
+        if (g_hFont) DeleteObject(g_hFont);
+        if (g_hFontCurrent) DeleteObject(g_hFontCurrent);
+        if (g_hFontHistory) DeleteObject(g_hFontHistory);
         PostQuitMessage(0);
         break;
+
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
     return 0;
 }
 
-// Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    UNREFERENCED_PARAMETER(lParam);
-    switch (message)
-    {
-    case WM_INITDIALOG:
-        return (INT_PTR)TRUE;
+LRESULT CALLBACK CustomDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    switch (message) {
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
 
-    case WM_COMMAND:
-        if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-        {
-            EndDialog(hDlg, LOWORD(wParam));
-            return (INT_PTR)TRUE;
-        }
-        break;
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        RECT rcHistory = rc;
+        rcHistory.bottom = rc.bottom / 3;
+        rcHistory.right -= 5;
+
+        RECT rcCurrent = rc;
+        rcCurrent.top = rc.bottom / 3;
+        rcCurrent.right -= 5;
+
+        SetBkMode(hdc, TRANSPARENT);
+
+        if (g_hFontHistory) SelectObject(hdc, g_hFontHistory);
+        SetTextColor(hdc, RGB(100, 100, 100));
+        DrawTextW(hdc, szHistory, -1, &rcHistory, DT_RIGHT | DT_SINGLELINE | DT_BOTTOM);
+
+        if (g_hFontCurrent) SelectObject(hdc, g_hFontCurrent);
+        SetTextColor(hdc, RGB(0, 0, 0));
+        DrawTextW(hdc, szCurrent, -1, &rcCurrent, DT_RIGHT | DT_SINGLELINE | DT_BOTTOM);
+
+        EndPaint(hWnd, &ps);
+        return 0;
     }
-    return (INT_PTR)FALSE;
+    case WM_ERASEBKGND: {
+        HDC hdc = (HDC)wParam;
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+        FillRect(hdc, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+        return 1;
+    }
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+    }
 }

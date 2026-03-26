@@ -32,8 +32,29 @@
 #define IDC_BTN_DIV 1013
 #define IDC_BTN_EQ  1014
 #define IDC_BTN_BS  1015
-#define IDC_BTN_C	1016
+#define IDC_BTN_CLEAR	1016
 #define IDC_BTN_DOT 1017
+
+// Programmer Mode
+#define IDC_BTN_A       1020
+#define IDC_BTN_B       1021
+#define IDC_BTN_C		1022
+#define IDC_BTN_D       1023
+#define IDC_BTN_E       1024
+#define IDC_BTN_F       1025
+
+#define IDC_COMBO_TYPE  1030
+#define IDC_RADIO_HEX   1031
+#define IDC_RADIO_DEC   1032
+#define IDC_RADIO_OCT   1033
+#define IDC_RADIO_BIN   1034
+
+#define IDM_BASE_HEX    200
+#define IDM_BASE_DEC    201
+#define IDM_BASE_OCT    202
+#define IDM_BASE_BIN    203
+#define IDM_COPY        204
+#define IDM_PASTE       205
 
 // Next default values for new objects
 // 

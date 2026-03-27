@@ -60,6 +60,8 @@
 
 #define IDM_SEPARATORS  207
 
+#define IDM_ABOUT       208
+
 #define IDC_BITDISPLAY 1035
 
 #define WM_BIT_FLIPPED (WM_APP + 1)

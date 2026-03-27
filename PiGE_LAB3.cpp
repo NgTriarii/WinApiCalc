@@ -29,6 +29,7 @@ HFONT g_hFont = NULL;
 
 HFONT g_hFontHistory = NULL;
 HFONT g_hFontCurrent = NULL;
+HFONT g_hFontWarning = NULL;
 
 WCHAR szHistory[256] = L"";
 WCHAR szCurrent[256] = L"0";
@@ -121,11 +122,36 @@ void UpdateMemoryFromInput() {
     try {
         if (currentDataType >= DT_HALF) { // Floating point
             double val = std::stod(currentInput);
-            if (currentDataType == DT_HALF) calcMem.u16 = FloatToHalf((float)val);
-            else if (currentDataType == DT_FLOAT) calcMem.f32 = (float)val;
-            else if (currentDataType == DT_DOUBLE) calcMem.f64 = val;
+            double storedVal = 0;
+
+            if (currentDataType == DT_HALF) {
+                calcMem.u16 = FloatToHalf((float)val);
+                storedVal = HalfToFloat(calcMem.u16);
+            }
+            else if (currentDataType == DT_FLOAT) {
+                calcMem.f32 = (float)val;
+                storedVal = calcMem.f32;
+            }
+            else if (currentDataType == DT_DOUBLE) {
+                calcMem.f64 = val;
+                storedVal = calcMem.f64;
+            }
+
+            // Check if typed value lost precision when stored
+            if (val != storedVal && currentBase == 10) {
+                showPrecisionWarning = true;
+                std::wstringstream ws;
+                ws << std::defaultfloat << std::setprecision(10) << storedVal;
+                exactDecimalInput = ws.str();
+            }
+            else {
+                showPrecisionWarning = false;
+            }
         }
         else { // Integer
+
+            showPrecisionWarning = false;
+
             uint64_t val = 0;
             if (currentBase == 10) {
                 val = std::stoull(currentInput);
@@ -412,6 +438,7 @@ void HandleButtonCommand(int id) {
         previousValue = 0;
         currentOp = 0;
         newNumber = true;
+        showPrecisionWarning = false;
     }
     else if (id >= IDC_BTN_ADD && id <= IDC_BTN_DIV) {
         if (!newNumber || currentOp == 0) {
@@ -805,9 +832,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         if (g_hFontCurrent) DeleteObject(g_hFontCurrent);
         if (g_hFontHistory) DeleteObject(g_hFontHistory);
-        g_hFontCurrent = CreateFontW(displayHeight * 2 / 3, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+        if (g_hFontWarning) DeleteObject(g_hFontWarning);
+        g_hFontCurrent = CreateFontW(displayHeight * 2 / 4, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
         g_hFontHistory = CreateFontW(displayHeight / 4, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-
+        g_hFontWarning = CreateFontW(displayHeight / 4, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
         InvalidateRect(hWnd, NULL, TRUE);
         InvalidateRect(hDisplay, NULL, TRUE);
 
@@ -1010,8 +1038,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_GETMINMAXINFO: {
         LPMINMAXINFO lpMMI = (LPMINMAXINFO)lParam;
-        lpMMI->ptMinTrackSize.x = 320;
-        lpMMI->ptMinTrackSize.y = 400;
+        if (currentMode == MODE_BASIC) {
+            lpMMI->ptMinTrackSize.x = 320;
+            lpMMI->ptMinTrackSize.y = 400;
+        }
+        else {
+            lpMMI->ptMinTrackSize.x = 320;
+            lpMMI->ptMinTrackSize.y = 580;
+        }
         return 0;
     }
 
@@ -1070,7 +1104,14 @@ LRESULT CALLBACK CustomDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam, LP
 
         RECT rcCurrent = rc;
         rcCurrent.top = rc.bottom / 3;
+        rcCurrent.bottom = rc.bottom - 20;
         rcCurrent.right -= 5;
+
+        // Precision warning
+        RECT rcWarn = rc;
+        rcWarn.top = rc.bottom - 20;
+        rcWarn.bottom = rc.bottom - 2;
+        rcWarn.right -= 5;
 
         SetBkMode(hdc, TRANSPARENT);
 
@@ -1081,6 +1122,16 @@ LRESULT CALLBACK CustomDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam, LP
         if (g_hFontCurrent) SelectObject(hdc, g_hFontCurrent);
         SetTextColor(hdc, RGB(0, 0, 0));
         DrawTextW(hdc, szCurrent, -1, &rcCurrent, DT_RIGHT | DT_SINGLELINE | DT_BOTTOM);
+
+        if (showPrecisionWarning && currentMode == MODE_PROGRAMMER && currentDataType >= DT_HALF && currentBase == 10) {
+            if(g_hFontWarning) SelectObject(hdc, g_hFontWarning);
+
+            SetTextColor(hdc, RGB(220, 0, 0)); // Pure Red Text
+
+            std::wstring warnMsg = L"Stored value: " + exactDecimalInput;
+            DrawTextW(hdc, warnMsg.c_str(), -1, &rcWarn, DT_RIGHT | DT_SINGLELINE | DT_BOTTOM);
+
+        }
 
         EndPaint(hWnd, &ps);
         return 0;

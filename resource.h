@@ -60,6 +60,10 @@
 
 #define IDM_SEPARATORS  207
 
+#define IDC_BITDISPLAY 1035
+
+#define WM_BIT_FLIPPED (WM_APP + 1)
+
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED

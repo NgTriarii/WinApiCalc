@@ -21,6 +21,7 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK    CustomDisplayWndProc(HWND, UINT, WPARAM, LPARAM);
+LRESULT CALLBACK    CustomBitDisplayWndProc(HWND, UINT, WPARAM, LPARAM);
 
 HWND hDisplay = NULL;
 HWND hBtns[18];
@@ -49,6 +50,9 @@ HWND hRadioBases[4];
 
 WCHAR szIniPath[MAX_PATH];
 bool isAlwaysOnTop = false;
+
+HWND hBitDisplay = NULL;
+bool useSeparators = false;
 
 enum DataType {
     DT_INT8, DT_UINT8, DT_INT16, DT_UINT16,
@@ -143,10 +147,48 @@ void UpdateMemoryFromInput() {
     }
 }
 
+std::wstring AddSeparators(std::wstring str, int base, bool isFloat) {
+    if (str.empty() || str == L"0") return str;
+
+    std::wstring prefix = L"";
+    if (str[0] == L'-') { prefix = L"-"; str = str.substr(1); }
+    else if (base == 16 && str.find(L"0x") == 0) { prefix = L"0x"; str = str.substr(2); }
+    else if (base == 8 && str.find(L"o") == 0) { prefix = L"o"; str = str.substr(1); }
+    else if (base == 2 && str.find(L"b") == 0) { prefix = L"b"; str = str.substr(1); }
+
+    std::wstring intPart = str;
+    std::wstring fracPart = L"";
+
+    if (isFloat) {
+        size_t dotPos = str.find(L'.');
+        if (dotPos != std::wstring::npos) {
+            intPart = str.substr(0, dotPos);
+            fracPart = str.substr(dotPos);
+        }
+    }
+
+    std::wstring result = L"";
+    int groupSize = (base == 16 || base == 2) ? 4 : 3; // Hex/Bin - 4, Dec/Oct - 3
+    wchar_t sepChar = (base == 10) ? L',' : L' ';
+
+    int count = 0;
+    for (int i = (int)intPart.length() - 1; i >= 0; i--) {
+        result = intPart[i] + result;
+        count++;
+        if (count == groupSize && i > 0) {
+            result = sepChar + result;
+            count = 0;
+        }
+    }
+
+    return prefix + result + fracPart;
+}
+
 // Formats calcMem back into currentInput & szCurrent
 void UpdateDisplay() {
     if (currentMode == MODE_BASIC) {
-        wcscpy_s(szCurrent, currentInput.c_str());
+        if (useSeparators) wcscpy_s(szCurrent, AddSeparators(currentInput, 10, true).c_str());
+        else wcscpy_s(szCurrent, currentInput.c_str());
         InvalidateRect(hDisplay, NULL, TRUE);
         return;
     }
@@ -162,7 +204,6 @@ void UpdateDisplay() {
     }
     else {
         uint64_t val = 0;
-        // Truncate based on active type
         switch (currentDataType) {
         case DT_INT8:   val = (uint64_t)(int64_t)calcMem.i8; break;
         case DT_UINT8:  val = calcMem.u8; break;
@@ -179,38 +220,30 @@ void UpdateDisplay() {
             if (isSigned) ss << (int64_t)val;
             else ss << val;
         }
-        else if (currentBase == 16) {
-            ss << L"0x" << std::hex << std::uppercase << val;
-        }
-        else if (currentBase == 8) {
-            ss << L"o" << std::oct << val;
-        }
+        else if (currentBase == 16) ss << L"0x" << std::hex << std::uppercase << val;
+        else if (currentBase == 8) ss << L"o" << std::oct << val;
         else if (currentBase == 2) {
-            // Convert the raw memory value to a 64-bit binary string
             std::wstring binStr = std::bitset<64>(val).to_string<wchar_t>();
-
             size_t firstOne = binStr.find(L'1');
-
-            if (firstOne != std::wstring::npos) {
-                ss << L"b" << binStr.substr(firstOne);
-            }
-            else {
-                ss << L"b0";
-            }
+            if (firstOne != std::wstring::npos) ss << L"b" << binStr.substr(firstOne);
+            else ss << L"b0";
         }
     }
 
     std::wstring generatedStr = ss.str();
 
     if (currentBase == 10 && !newNumber) {
-        wcscpy_s(szCurrent, currentInput.c_str());
+        if (useSeparators) wcscpy_s(szCurrent, AddSeparators(currentInput, currentBase, currentDataType >= DT_HALF).c_str());
+        else wcscpy_s(szCurrent, currentInput.c_str());
     }
     else {
         currentInput = generatedStr;
-        wcscpy_s(szCurrent, currentInput.c_str());
+        if (useSeparators) wcscpy_s(szCurrent, AddSeparators(currentInput, currentBase, currentDataType >= DT_HALF).c_str());
+        else wcscpy_s(szCurrent, currentInput.c_str());
     }
 
     InvalidateRect(hDisplay, NULL, TRUE);
+    if (hBitDisplay) InvalidateRect(hBitDisplay, NULL, TRUE);
 }
 
 std::wstring FormatDouble(double d) {
@@ -238,12 +271,21 @@ double GetParsedInputValue() {
     catch (...) { return 0.0; }
 }
 
-void UpdateButtonStates() {
+void UpdateButtonStates(HWND hWnd) {
 
     if (currentMode == MODE_BASIC) {
         for (int i = 0; i < 18; i++) EnableWindow(hBtns[i], TRUE);
         return;
     }
+
+    bool isFloat = (currentDataType >= DT_HALF);
+
+    HMENU hMenu = GetMenu(hWnd);
+    UINT menuState = isFloat ? (MF_BYCOMMAND | MF_GRAYED) : (MF_BYCOMMAND | MF_ENABLED);
+
+    EnableMenuItem(hMenu, IDM_BASE_HEX, menuState);
+    EnableMenuItem(hMenu, IDM_BASE_OCT, menuState);
+    EnableMenuItem(hMenu, IDM_BASE_BIN, menuState);
 
     // Programmer Mode
     bool enableHex = (currentBase == 16);
@@ -269,6 +311,67 @@ void UpdateButtonStates() {
     // Dot (Index 14) - only in floating point
     bool enableDot = (currentDataType >= DT_HALF);
     EnableWindow(hBtns[14], enableDot);
+}
+
+void CopyToClipboard(HWND hWnd, const std::wstring& text) {
+    if (!OpenClipboard(hWnd)) return;
+    EmptyClipboard();
+
+    // Allocate global memory for the string
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (text.length() + 1) * sizeof(wchar_t));
+    if (hMem) {
+        wchar_t* pMem = (wchar_t*)GlobalLock(hMem);
+        wcscpy_s(pMem, text.length() + 1, text.c_str());
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+    }
+    CloseClipboard();
+}
+
+void HandlePaste(HWND hWnd) {
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
+    if (!OpenClipboard(hWnd)) return;
+
+    HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
+    if (hMem) {
+        wchar_t* pMem = (wchar_t*)GlobalLock(hMem);
+        if (pMem) {
+            std::wstring pasted(pMem);
+            GlobalUnlock(hMem);
+
+            std::wstring clean = L"";
+            for (wchar_t c : pasted) {
+                if (c != L' ' && c != L',' && c != L'\r' && c != L'\n') clean += c;
+            }
+
+            if (!clean.empty()) {
+                try {
+                    if (currentMode == MODE_PROGRAMMER && currentDataType < DT_HALF) {
+                        int base = currentBase;
+                        std::wstring testClean = clean;
+                        if (testClean.find(L"0x") == 0) { testClean = testClean.substr(2); base = 16; }
+                        else if (testClean.find(L"o") == 0) { testClean = testClean.substr(1); base = 8; }
+                        else if (testClean.find(L"b") == 0) { testClean = testClean.substr(1); base = 2; }
+
+                        std::stoull(testClean, nullptr, base);
+                    }
+                    else {
+                        std::stod(clean);
+                    }
+
+                    currentInput = clean;
+                    newNumber = true;
+
+                    if (currentMode == MODE_PROGRAMMER) UpdateMemoryFromInput();
+                    UpdateDisplay();
+
+                }
+                catch (...) {
+                }
+            }
+        }
+    }
+    CloseClipboard();
 }
 
 void HandleButtonCommand(int id) {
@@ -443,6 +546,15 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     wcexDisp.hbrBackground = (HBRUSH)GetStockObject(WHITE_BRUSH);
     wcexDisp.lpszClassName = L"CustomDisplay";
 
+    WNDCLASSEXW wcexBit = { 0 };
+    wcexBit.cbSize = sizeof(WNDCLASSEX);
+    wcexBit.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+    wcexBit.lpfnWndProc = CustomBitDisplayWndProc;
+    wcexBit.hInstance = hInstance;
+    wcexBit.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    wcexBit.lpszClassName = L"CustomBitDisplay";
+    RegisterClassExW(&wcexBit);
+
     return RegisterClassExW(&wcexDisp);
 
 }
@@ -460,7 +572,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    int cx = GetPrivateProfileIntW(L"Window", L"Width", 350, szIniPath);
    int cy = GetPrivateProfileIntW(L"Window", L"Height", 450, szIniPath);
 
-   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
+   HWND hWnd = CreateWindowW(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
        x, y, cx, cy, nullptr, nullptr, hInstance, nullptr);
 
    if (!hWnd)
@@ -493,6 +605,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         isAlwaysOnTop = GetPrivateProfileIntW(L"Settings", L"AlwaysOnTop", 0, szIniPath) != 0;
 
+        useSeparators = GetPrivateProfileIntW(L"Settings", L"Separators", 0, szIniPath) != 0;
+        CheckMenuItem(hMenu, IDM_SEPARATORS, useSeparators ? MF_CHECKED : MF_UNCHECKED);
+
         SetWindowLongPtr(hWnd, GWL_EXSTYLE, GetWindowLongPtr(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED);
         SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
 
@@ -504,6 +619,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         hDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"CustomDisplay", L"",
             WS_CHILD | WS_VISIBLE | WS_BORDER,
             0, 0, 0, 0, hWnd, (HMENU)IDC_DISPLAY, GetModuleHandle(NULL), NULL);
+
+        hBitDisplay = CreateWindowExW(WS_EX_CLIENTEDGE, L"CustomBitDisplay", L"",
+            WS_CHILD | WS_VISIBLE | WS_BORDER,
+            0, 0, 0, 0, hWnd, (HMENU)IDC_BITDISPLAY, GetModuleHandle(NULL), NULL);
 
         struct ButtonDef { int id; const wchar_t* label; };
         ButtonDef layout[18] = {
@@ -555,6 +674,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         int savedDataType = GetPrivateProfileIntW(L"Settings", L"DataType", 0, szIniPath);
         SendMessage(hComboType, CB_SETCURSEL, savedDataType, 0);
 
+        currentDataType = (DataType)savedDataType;
+
         int savedBase = GetPrivateProfileIntW(L"Settings", L"Base", 1, szIniPath);
         SendMessage(hRadioBases[savedBase], BM_SETCHECK, BST_CHECKED, 0);
 
@@ -565,7 +686,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         else if (savedBase == 2) currentBase = 8;
         else if (savedBase == 3) currentBase = 2;
 
-        UpdateButtonStates();
+        UpdateButtonStates(hWnd);
 
         return 0;
         }
@@ -579,6 +700,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         int showCmd = (currentMode == MODE_PROGRAMMER) ? SW_SHOW : SW_HIDE;
         ShowWindow(hComboType, showCmd);
+        ShowWindow(hBitDisplay, showCmd);
         for (int i = 0; i < 6; i++) ShowWindow(hHexBtns[i], showCmd);
         for (int i = 0; i < 4; i++) ShowWindow(hRadioBases[i], showCmd);
 
@@ -626,8 +748,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             hdwp = DeferWindowPos(hdwp, hDisplay, NULL, gap, gap, cx - (2 * gap), displayHeight - gap, SWP_NOZORDER);
 
             int bitDisplayHeight = displayHeight * 3 / 4;
-            // DeferWindowPos for bitDisplay here
-            // x: gap, y: displayHeight + gap, height: bitDisplayHeight
+            hdwp = DeferWindowPos(hdwp, hBitDisplay, NULL, gap, displayHeight + gap, cx - (2 * gap), bitDisplayHeight, SWP_NOZORDER);
 
             int comboHeight = 25;
             int startY = displayHeight + gap + bitDisplayHeight + gap;
@@ -742,7 +863,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 UpdateMemoryFromInput();
                 UpdateDisplay();
 
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
 
                 SetFocus(hWnd);
                 return 0;
@@ -760,7 +881,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 GetClientRect(hWnd, &rc);
                 SendMessage(hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
 
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
 
                 break;
             case IDM_PROGRAMMER:
@@ -771,7 +892,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 GetClientRect(hWnd, &rc);
                 SendMessage(hWnd, WM_SIZE, SIZE_RESTORED, MAKELPARAM(rc.right, rc.bottom));
 
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
 
                 break;
             case IDC_RADIO_HEX:
@@ -782,7 +903,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 CheckMenuRadioItem(GetMenu(hWnd), IDM_BASE_HEX, IDM_BASE_BIN, IDM_BASE_HEX, MF_BYCOMMAND);
                 UpdateMemoryFromInput();
                 UpdateDisplay();
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
                 break;
             case IDC_RADIO_DEC:
             case IDM_BASE_DEC:
@@ -792,7 +913,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 CheckMenuRadioItem(GetMenu(hWnd), IDM_BASE_HEX, IDM_BASE_BIN, IDM_BASE_DEC, MF_BYCOMMAND);
                 UpdateMemoryFromInput();
                 UpdateDisplay();
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
                 break;
             case IDC_RADIO_OCT:
             case IDM_BASE_OCT:
@@ -802,7 +923,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 CheckMenuRadioItem(GetMenu(hWnd), IDM_BASE_HEX, IDM_BASE_BIN, IDM_BASE_OCT, MF_BYCOMMAND);
                 UpdateMemoryFromInput();
                 UpdateDisplay();
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
                 break;
             case IDC_RADIO_BIN:
             case IDM_BASE_BIN:
@@ -812,11 +933,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                 CheckMenuRadioItem(GetMenu(hWnd), IDM_BASE_HEX, IDM_BASE_BIN, IDM_BASE_BIN, MF_BYCOMMAND);
                 UpdateMemoryFromInput();
                 UpdateDisplay();
-                UpdateButtonStates();
+                UpdateButtonStates(hWnd);
+                break;
+            case IDM_COPY:
+                CopyToClipboard(hWnd, currentInput);
+                break;
+            case IDM_PASTE:
+                HandlePaste(hWnd);
                 break;
             case IDM_CLEAR:
                 HandleButtonCommand(IDC_BTN_CLEAR);
                 InvalidateRect(hDisplay, NULL, TRUE);
+                break;
+            case IDM_SEPARATORS:
+                useSeparators = !useSeparators;
+                CheckMenuItem(GetMenu(hWnd), IDM_SEPARATORS, useSeparators ? MF_CHECKED : MF_UNCHECKED);
+                UpdateDisplay();
                 break;
             case IDM_ALWAYSONTOP:
                 isAlwaysOnTop = !isAlwaysOnTop;
@@ -850,6 +982,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         else if (wParam == '.' || wParam == ',') PostMessage(hWnd, WM_COMMAND, IDC_BTN_DOT, 0);
         else if (wParam == '=') PostMessage(hWnd, WM_COMMAND, IDC_BTN_EQ, 0);
         break;
+
+    case WM_BIT_FLIPPED:
+        newNumber = true;
+        UpdateDisplay();
+        return 0;
 
     case WM_ACTIVATE:
         if (isAlwaysOnTop) {
@@ -893,6 +1030,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
         int selectedType = (int)SendMessage(hComboType, CB_GETCURSEL, 0, 0);
         WritePrivateProfileStringW(L"Settings", L"DataType", std::to_wstring(selectedType).c_str(), szIniPath);
+
+        WritePrivateProfileStringW(L"Settings", L"Separators", useSeparators ? L"1" : L"0", szIniPath);
 
         WritePrivateProfileStringW(L"Settings", L"AlwaysOnTop", isAlwaysOnTop ? L"1" : L"0", szIniPath);
 
@@ -956,4 +1095,225 @@ LRESULT CALLBACK CustomDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam, LP
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
+}
+
+LRESULT CALLBACK CustomBitDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    static int currentHover = -1;
+
+    auto GetGridLayout = [](int& activeBits, int& cols, int& rows) {
+        if (currentDataType <= DT_UINT8) { activeBits = 8; cols = 8; rows = 1; }
+        else if (currentDataType <= DT_UINT16 || currentDataType == DT_HALF) { activeBits = 16; cols = 16; rows = 1; }
+        else if (currentDataType <= DT_UINT32 || currentDataType == DT_FLOAT) { activeBits = 32; cols = 16; rows = 2; }
+        else { activeBits = 64; cols = 16; rows = 4; }
+        };
+
+    switch (message) {
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hWnd, &ps);
+
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        HDC hdcMem = CreateCompatibleDC(hdc);
+        HBITMAP hbmMem = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
+        HBITMAP hOld = (HBITMAP)SelectObject(hdcMem, hbmMem);
+
+        FillRect(hdcMem, &rc, (HBRUSH)GetStockObject(WHITE_BRUSH));
+
+        int activeBits, cols, rows;
+        GetGridLayout(activeBits, cols, rows);
+
+        float cellW = (float)rc.right / cols;
+        float cellH = (float)rc.bottom / rows;
+
+        int fontSizeLarge = max(8, (int)(min(cellH, cellW) * 0.9f));
+        HFONT hFontLarge = CreateFontW(fontSizeLarge, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+
+        int fontSizeSmall = max(6, (int)(min(cellH, cellW) * 0.35f));
+        HFONT hFontSmall = CreateFontW(fontSizeSmall, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+
+        SetBkMode(hdcMem, TRANSPARENT);
+
+        // Draw bits
+        for (int i = 0; i < activeBits; i++) {
+            int bitIndex = (activeBits - 1) - i;
+            int row = i / cols;
+            int col = i % cols;
+
+            int leftEdge = (int)(col * cellW);
+            int topEdge = (int)(row * cellH);
+            int rightEdge = (col == cols - 1) ? rc.right : (int)((col + 1) * cellW);
+            int bottomEdge = (row == rows - 1) ? rc.bottom : (int)((row + 1) * cellH);
+
+            RECT cellRc = { leftEdge, topEdge, rightEdge, bottomEdge };
+            RECT mainRc = { cellRc.left, cellRc.top, cellRc.right, cellRc.bottom - (int)(cellH * 0.4f) };
+            RECT idxRc = { cellRc.left, cellRc.bottom - (int)(cellH * 0.35f), cellRc.right, cellRc.bottom };
+
+            COLORREF bgCol = RGB(240, 240, 255);
+            COLORREF ordCol = RGB(150, 150, 160);
+
+            if (currentDataType >= DT_HALF) {
+                int expBits = (currentDataType == DT_HALF) ? 5 : (currentDataType == DT_FLOAT) ? 8 : 11;
+                int mantBits = (currentDataType == DT_HALF) ? 10 : (currentDataType == DT_FLOAT) ? 23 : 52;
+
+                if (bitIndex == expBits + mantBits) {
+                    bgCol = RGB(255, 220, 220); ordCol = RGB(200, 100, 100);
+                }
+                else if (bitIndex >= mantBits && bitIndex < expBits + mantBits) {
+                    bgCol = RGB(220, 255, 220); ordCol = RGB(100, 180, 100);
+                }
+                else if (bitIndex < mantBits) {
+                    bgCol = RGB(220, 220, 255); ordCol = RGB(120, 120, 200);
+                }
+            }
+
+            if (bitIndex == currentHover) {
+                bgCol = RGB(max(0, GetRValue(bgCol) - 40), max(0, GetGValue(bgCol) - 40), max(0, GetBValue(bgCol) - 40));
+            }
+
+            HBRUSH hBr = CreateSolidBrush(bgCol);
+            FillRect(hdcMem, &cellRc, hBr);
+            DeleteObject(hBr);
+
+            SelectObject(hdcMem, hFontSmall);
+            SetTextColor(hdcMem, ordCol);
+            std::wstring sIdx = std::to_wstring(bitIndex);
+            DrawTextW(hdcMem, sIdx.c_str(), -1, &idxRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            int bitVal = (calcMem.u64 >> bitIndex) & 1;
+            SelectObject(hdcMem, hFontLarge);
+            COLORREF digitCol = (bitIndex == currentHover) ? RGB(0, 0, 255) : (bitVal ? RGB(0, 0, 0) : RGB(170, 170, 170));
+            SetTextColor(hdcMem, digitCol);
+            std::wstring sVal = std::to_wstring(bitVal);
+            DrawTextW(hdcMem, sVal.c_str(), -1, &mainRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+
+        // Draw Tooltip
+        if (currentHover != -1) {
+            std::wstring tipText;
+            if (currentDataType < DT_HALF) {
+                uint64_t weight = (1ULL << currentHover);
+                tipText = L"Bit " + std::to_wstring(currentHover) + L"\nDecimal Weight: " + std::to_wstring(weight);
+            }
+            else {
+                int expBits = (currentDataType == DT_HALF) ? 5 : (currentDataType == DT_FLOAT) ? 8 : 11;
+                int mantBits = (currentDataType == DT_HALF) ? 10 : (currentDataType == DT_FLOAT) ? 23 : 52;
+
+                if (currentHover == expBits + mantBits) {
+                    tipText = L"Sign Bit\n(0 = Positive, 1 = Negative)";
+                }
+                else if (currentHover >= mantBits) {
+                    int expIdx = currentHover - mantBits;
+                    uint64_t weight = (1ULL << expIdx);
+                    tipText = L"Exponent Bit " + std::to_wstring(expIdx) + L"\nWeight: " + std::to_wstring(weight);
+                }
+                else {
+                    int mantIdx = mantBits - currentHover;
+                    tipText = L"Mantissa Bit " + std::to_wstring(currentHover) + L"\nFractional Weight: 2^-" + std::to_wstring(mantIdx);
+                }
+            }
+
+            HFONT hTipFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+            SelectObject(hdcMem, hTipFont);
+
+            RECT textRc = { 0, 0, 0, 0 };
+            DrawTextW(hdcMem, tipText.c_str(), -1, &textRc, DT_CALCRECT | DT_LEFT);
+
+            int pad = 5;
+            int tipW = (textRc.right - textRc.left) + (pad * 2);
+            int tipH = (textRc.bottom - textRc.top) + (pad * 2);
+
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hWnd, &pt);
+
+            int tipX = pt.x + 15;
+            int tipY = pt.y + 15;
+
+            if (tipX + tipW > rc.right) tipX = pt.x - tipW - 5;
+            if (tipY + tipH > rc.bottom) tipY = pt.y - tipH - 5;
+            if (tipX < 0) tipX = 0;
+            if (tipY < 0) tipY = 0;
+
+            RECT bgRc = { tipX, tipY, tipX + tipW, tipY + tipH };
+            RECT drawRc = { tipX + pad, tipY + pad, tipX + tipW - pad, tipY + tipH - pad };
+
+            HBRUSH hTipBr = CreateSolidBrush(RGB(255, 255, 225));
+            HPEN hTipPen = CreatePen(PS_SOLID, 1, RGB(100, 100, 100));
+            SelectObject(hdcMem, hTipBr);
+            SelectObject(hdcMem, hTipPen);
+
+            Rectangle(hdcMem, bgRc.left, bgRc.top, bgRc.right, bgRc.bottom);
+
+            SetTextColor(hdcMem, RGB(0, 0, 0));
+            DrawTextW(hdcMem, tipText.c_str(), -1, &drawRc, DT_LEFT);
+
+            DeleteObject(hTipBr);
+            DeleteObject(hTipPen);
+            DeleteObject(hTipFont);
+        }
+
+        BitBlt(hdc, 0, 0, rc.right, rc.bottom, hdcMem, 0, 0, SRCCOPY);
+
+        SelectObject(hdcMem, hOld);
+        DeleteObject(hbmMem);
+        DeleteDC(hdcMem);
+        DeleteObject(hFontLarge);
+        DeleteObject(hFontSmall);
+        EndPaint(hWnd, &ps);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE: {
+        RECT rc;
+        GetClientRect(hWnd, &rc);
+
+        int activeBits, cols, rows;
+        GetGridLayout(activeBits, cols, rows);
+
+        float cellW = (float)rc.right / cols;
+        float cellH = (float)rc.bottom / rows;
+
+        int col = (int)(LOWORD(lParam) / cellW);
+        int row = (int)(HIWORD(lParam) / cellH);
+
+        if (col >= cols) col = cols - 1;
+        if (row >= rows) row = rows - 1;
+
+        if (col >= 0 && col < cols && row >= 0 && row < rows) {
+            int bitIndex = (activeBits - 1) - (row * cols + col);
+            if (bitIndex >= 0 && bitIndex < activeBits) {
+                currentHover = bitIndex;
+
+                InvalidateRect(hWnd, NULL, FALSE);
+
+                TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
+                TrackMouseEvent(&tme);
+            }
+        }
+        else if (currentHover != -1) {
+            currentHover = -1;
+            InvalidateRect(hWnd, NULL, FALSE);
+        }
+        return 0;
+    }
+
+    case WM_MOUSELEAVE:
+        currentHover = -1;
+        InvalidateRect(hWnd, NULL, FALSE);
+        return 0;
+
+    case WM_LBUTTONDOWN:
+        if (currentHover != -1) {
+            calcMem.u64 ^= (1ULL << currentHover);
+            PostMessage(GetParent(hWnd), WM_BIT_FLIPPED, 0, 0);
+        }
+        return 0;
+    }
+
+    return DefWindowProc(hWnd, message, wParam, lParam);
 }

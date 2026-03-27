@@ -15,25 +15,25 @@
 #define IDI_ICON1                       129
 #define IDM_PROGRAMMER					130
 #define IDC_STATIC                      -1
-#define IDC_DISPLAY 100
-#define IDC_BTN_0   1000
-#define IDC_BTN_1   1001
-#define IDC_BTN_2   1002
-#define IDC_BTN_3   1003
-#define IDC_BTN_4   1004
-#define IDC_BTN_5   1005
-#define IDC_BTN_6   1006
-#define IDC_BTN_7   1007
-#define IDC_BTN_8   1008
-#define IDC_BTN_9   1009
-#define IDC_BTN_ADD 1010
-#define IDC_BTN_SUB 1011
-#define IDC_BTN_MUL 1012
-#define IDC_BTN_DIV 1013
-#define IDC_BTN_EQ  1014
-#define IDC_BTN_BS  1015
+#define IDC_DISPLAY		100
+#define IDC_BTN_0		1000
+#define IDC_BTN_1		1001
+#define IDC_BTN_2		1002
+#define IDC_BTN_3		1003
+#define IDC_BTN_4		1004
+#define IDC_BTN_5		1005
+#define IDC_BTN_6		1006
+#define IDC_BTN_7		1007
+#define IDC_BTN_8		1008
+#define IDC_BTN_9		1009
+#define IDC_BTN_ADD		1010
+#define IDC_BTN_SUB		1011
+#define IDC_BTN_MUL		1012
+#define IDC_BTN_DIV		1013
+#define IDC_BTN_EQ		1014
+#define IDC_BTN_BS		1015
 #define IDC_BTN_CLEAR	1016
-#define IDC_BTN_DOT 1017
+#define IDC_BTN_DOT		1017
 
 // Programmer Mode
 #define IDC_BTN_A       1020
@@ -55,6 +55,10 @@
 #define IDM_BASE_BIN    203
 #define IDM_COPY        204
 #define IDM_PASTE       205
+
+#define IDM_ALWAYSONTOP 206
+
+#define IDM_SEPARATORS  207
 
 // Next default values for new objects
 // 

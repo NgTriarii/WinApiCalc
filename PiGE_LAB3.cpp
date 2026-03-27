@@ -1260,7 +1260,8 @@ LRESULT CALLBACK CustomBitDisplayWndProc(HWND hWnd, UINT message, WPARAM wParam,
                 else if (currentHover >= mantBits) {
                     int expIdx = currentHover - mantBits;
                     uint64_t weight = (1ULL << expIdx);
-                    tipText = L"Exponent Bit " + std::to_wstring(expIdx) + L"\nWeight: " + std::to_wstring(weight);
+                    int bias = std::pow(2, expBits - 1) - 1;
+                    tipText = L"Exponent Bit " + std::to_wstring(expIdx) + L"\nWeight: " + std::to_wstring(weight) + L" (Bias:" + std::to_wstring(bias) + L")";
                 }
                 else {
                     int mantIdx = mantBits - currentHover;

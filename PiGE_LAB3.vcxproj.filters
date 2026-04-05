@@ -24,17 +24,17 @@
     <ClInclude Include="Resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="PiGE_LAB3.h">
+    <ClInclude Include="Calc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="PiGE_LAB3.cpp">
+    <ClCompile Include="WinApiCalc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="PiGE_LAB3.rc">
+    <ResourceCompile Include="resources.rc">
       <Filter>Resource Files</Filter>
     </ResourceCompile>
   </ItemGroup>
@@ -42,7 +42,7 @@
     <Image Include="small.ico">
       <Filter>Resource Files</Filter>
     </Image>
-    <Image Include="PiGE_LAB3.ico">
+    <Image Include="base.ico">
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="calc.ico">

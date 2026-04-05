@@ -1,8 +1,5 @@
-﻿// PiGE_LAB3.cpp : Defines the entry point for the application.
-//
-
-#include "framework.h"
-#include "PiGE_LAB3.h"
+﻿#include "framework.h"
+#include "Calc.h"
 #include <string>
 
 #include <sstream>

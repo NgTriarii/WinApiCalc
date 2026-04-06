@@ -22,7 +22,7 @@ Precision Monitoring: Ideal for testing edge cases in financial or scientific ap
 
 Theme & UI Customization: Supports external configuration for visual parameters via a standard initialization file.
 
-Usage & Build Instructions
+## Usage & Build Instructions
 
 ### Running the Application
 
